@@ -160,6 +160,83 @@ class TestGetEndpointData(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("ETag", headers)
             self.assertNotIn("Link", headers)
 
+    @patch("src.common.hosts.get_hosts")
+    @patch("redfish.redfish_client")
+    async def test_url_port_matching_config_succeeds(
+        self, mock_redfish_client, mock_get_hosts
+    ):
+        mock_get_hosts.return_value = [
+            {"address": "host1", "port": 8443, "username": "u", "password": "p"}
+        ]
+        url = "https://host1:8443/redfish/v1/Systems/1"
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.dict = {"name": "System1", "id": "1"}
+        mock_response.getheaders.return_value = [("Content-Type", "application/json")]
+        mock_redfish_client_instance = MagicMock()
+        mock_redfish_client_instance.login.return_value = None
+        mock_redfish_client_instance.cafile = None
+        mock_redfish_client_instance.get.return_value = mock_response
+        mock_redfish_client_instance.logout.return_value = None
+        mock_redfish_client.return_value = mock_redfish_client_instance
+
+        async with Client(src.common.server.mcp) as client:
+            result = await client.call_tool("get_resource_data", {"url": url})
+            data = extract_call_tool_result(result)
+            self.assertEqual(data["data"], {"name": "System1", "id": "1"})
+
+    @patch("src.common.hosts.get_hosts")
+    @patch("redfish.redfish_client")
+    async def test_url_port_mismatch_raises(self, mock_redfish_client, mock_get_hosts):
+        # A URL with an explicit port that differs from the configured server
+        # port must fail loudly, not be silently redirected to the config port.
+        # The backend client is mocked as fully reachable, so only the port
+        # validation can produce the expected error.
+        mock_get_hosts.return_value = [
+            {"address": "host1", "port": 8443, "username": "u", "password": "p"}
+        ]
+        url = "https://host1:443/redfish/v1/Systems/1"
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.dict = {"name": "System1", "id": "1"}
+        mock_response.getheaders.return_value = [("Content-Type", "application/json")]
+        mock_redfish_client_instance = MagicMock()
+        mock_redfish_client_instance.login.return_value = None
+        mock_redfish_client_instance.cafile = None
+        mock_redfish_client_instance.get.return_value = mock_response
+        mock_redfish_client_instance.logout.return_value = None
+        mock_redfish_client.return_value = mock_redfish_client_instance
+
+        async with Client(src.common.server.mcp) as client:
+            with self.assertRaises(ToolError):
+                await client.call_tool("get_resource_data", {"url": url})
+
+    @patch("src.common.hosts.get_hosts")
+    @patch("redfish.redfish_client")
+    async def test_http_scheme_raises(self, mock_redfish_client, mock_get_hosts):
+        # The Redfish client always connects over HTTPS; an http:// URL must
+        # be rejected instead of silently upgraded. The backend client is
+        # mocked as fully reachable, so only the scheme validation can
+        # produce the expected error.
+        mock_get_hosts.return_value = [
+            {"address": "host1", "port": 8443, "username": "u", "password": "p"}
+        ]
+        url = "http://host1/redfish/v1/Systems/1"
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.dict = {"name": "System1", "id": "1"}
+        mock_response.getheaders.return_value = [("Content-Type", "application/json")]
+        mock_redfish_client_instance = MagicMock()
+        mock_redfish_client_instance.login.return_value = None
+        mock_redfish_client_instance.cafile = None
+        mock_redfish_client_instance.get.return_value = mock_response
+        mock_redfish_client_instance.logout.return_value = None
+        mock_redfish_client.return_value = mock_redfish_client_instance
+
+        async with Client(src.common.server.mcp) as client:
+            with self.assertRaises(ToolError):
+                await client.call_tool("get_resource_data", {"url": url})
+
 
 if __name__ == "__main__":
     unittest.main()
