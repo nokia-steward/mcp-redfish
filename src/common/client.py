@@ -197,6 +197,11 @@ class RedfishClient:
         logger.debug(f"Successfully retrieved resource: {resource_path}")
         return response.dict
 
+    @retry(
+        **get_retry_configuration(),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        after=after_log(logger, logging.DEBUG),
+    )
     def get_with_headers(self, resource_path: str) -> dict[str, Any]:
         """Get resource data with headers included."""
         if not self.client:

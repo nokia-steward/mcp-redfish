@@ -197,6 +197,30 @@ class TestRedfishClientRetry(unittest.TestCase):
         self.assertEqual(result, {"test": "data"})
 
     @patch.dict(
+        os.environ, {"REDFISH_MAX_RETRIES": "2", "REDFISH_INITIAL_DELAY": "0.01"}
+    )
+    @patch("redfish.redfish_client")
+    def test_get_with_headers_operation_with_retry(self, mock_redfish_client):
+        """Test get_with_headers operation with retry logic."""
+        # Setup mock client
+        mock_client = MagicMock()
+        mock_redfish_client.return_value = mock_client
+
+        # First GET fails, second succeeds
+        mock_response = MagicMock()
+        mock_response.dict = {"test": "data"}
+        mock_response.getheaders.return_value = [("ETag", "abc123")]
+        mock_client.get.side_effect = [ConnectionError("Timeout"), mock_response]
+
+        client = RedfishClient(self.server_cfg, self.common_cfg)
+        result = client.get_with_headers("/redfish/v1/Systems")
+
+        # Should have called get twice (tenacity handles retry)
+        self.assertEqual(mock_client.get.call_count, 2)
+        self.assertEqual(result["data"], {"test": "data"})
+        self.assertEqual(result["headers"], {"ETag": "abc123"})
+
+    @patch.dict(
         os.environ, {"REDFISH_MAX_RETRIES": "1", "REDFISH_INITIAL_DELAY": "0.01"}
     )
     @patch("redfish.redfish_client")
