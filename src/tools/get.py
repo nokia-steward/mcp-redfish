@@ -43,6 +43,13 @@ async def get_resource_data(url: str) -> dict:
         raise ValidationError(
             f"Invalid URL: missing server address or resource path: {url}"
         )
+    if parsed.scheme != "https":
+        # The Redfish client always connects over HTTPS; honoring other
+        # schemes here would silently upgrade them.
+        logger.error(f"Unsupported URL scheme: {parsed.scheme} in {url}")
+        raise ValidationError(
+            f"Unsupported URL scheme: {parsed.scheme}. The Redfish client connects over HTTPS only."
+        )
 
     # Find server config
     try:
@@ -58,6 +65,20 @@ async def get_resource_data(url: str) -> dict:
     if not server_cfg:
         logger.error(f"Server {server_address} not found in config")
         raise ValidationError(f"Server {server_address} not found in config")
+
+    configured_port = server_cfg.get("port") or common.config.REDFISH_CFG.get(
+        "port", 443
+    )
+    if parsed.port is not None and parsed.port != configured_port:
+        # A URL pointing at a different port would otherwise be silently
+        # redirected to the configured port, fetching a resource from a
+        # server the caller did not ask for.
+        logger.error(
+            f"URL port {parsed.port} does not match configured Redfish server port {configured_port} for {server_address}"
+        )
+        raise ValidationError(
+            f"URL port {parsed.port} does not match configured Redfish server port {configured_port} for {server_address}"
+        )
 
     client = None
     try:
