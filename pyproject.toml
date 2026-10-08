@@ -8,7 +8,7 @@ packages = ["src"]
 
 [project]
 name = "mcp-redfish"
-version = "0.5.3"
+version = "0.5.4"
 description = "MCP Server for Redfish API Integration - A natural language interface for managing Redfish-enabled infrastructure"
 authors = [{name = "Nokia", email = "opensource@nokia.com"}]
 maintainers = [{name = "Nokia", email = "opensource@nokia.com"}]

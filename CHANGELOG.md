@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [0.5.4] - 2026-10-08
+
+### Fixed
+
+- `get_resource_data` rejects non-HTTPS URLs and explicit ports that do not match the configured Redfish endpoint, instead of silently using the configured endpoint.
+- `get_with_headers` retries retryable Redfish request failures using the configured retry policy.
+
+### Changed
+
+- Dependencies are updated within their existing ranges. Direct updates include FastMCP 4.0.11 and python-dotenv 1.2.4; developer tools include mypy 2.4.0 and Ruff 0.16.10. MCP Inspector moves to 2.9.0. Transitive updates include cyclopts 5.1.1 and filelock 4.0.12.
+
 ## [0.5.3] - 2026-09-24
 
 ### Deprecation
