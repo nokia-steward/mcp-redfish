@@ -2,7 +2,7 @@
 # Licensed under the BSD 3-Clause License.
 # SPDX-License-Identifier: BSD-3-Clause
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 RUN pip install --upgrade uv
 
 WORKDIR /app

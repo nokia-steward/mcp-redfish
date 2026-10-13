@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 # Optimized Dockerfile for Docker with cache mounts
-FROM python:3.14-slim
+FROM python:3.15-slim
 RUN pip install --upgrade uv
 
 WORKDIR /app
