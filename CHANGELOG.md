@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [0.5.5] - 2026-10-23
+
+### Fixed
+
+- Redfish client errors now include the full HTTP error body as JSON, surface the final status after retries, and avoid HTTP-status retries on mutating requests.
+- Dependency update automation preserves accepted lock versions during the publication cooldown and refreshes the Inspector npm lock when the pinned release is newer than the shared cutoff.
+- Lockfile security scans are addressed for `certifi`, transitive `virtualenv`, and the MCP Inspector npm graph (Inspector 2.12.0).
+
+### Added
+
+- Renovate configuration for GitHub Actions and container image references with a seven-day minimum release age and digest pinning.
+- Cooldown-aware automated dependency updates with vulnerability-fix exceptions, `uv audit`/`npm audit` in CI security, and publication-cutoff enforcement for Python and Inspector locks.
+
+### Changed
+
+- GitHub Actions workflow references use full semver tags so Renovate can apply the cooldown policy without grouped digest-pin stalls.
+- The uv installer pin moves to 0.13.1. E2E Dex defaults to v2.46.0. Routine dependency-update PRs refresh the Inspector transitive npm lock under the shared cutoff.
+
 ## [0.5.4] - 2026-10-08
 
 ### Fixed
