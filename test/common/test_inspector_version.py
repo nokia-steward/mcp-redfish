@@ -6,7 +6,7 @@ import io
 import json
 import sys
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -19,6 +19,7 @@ import check_uv_version
 from e2e.inspector_version import (
     InspectorVersionConfig,
     NoEligibleInspectorVersion,
+    direct_security_fix_version,
     fetch_npm_versions,
     latest_version_in_constraint,
     load_inspector_version_config,
@@ -270,6 +271,44 @@ class TestInspectorVersion(unittest.TestCase):
         )
         self.assertEqual(fetch_npm_versions("inspector")[-1], "3.0.0")
 
+    def test_direct_security_fix_uses_newest_in_range_version(self) -> None:
+        document = {
+            "vulnerabilities": {
+                "client": {
+                    "fixAvailable": {
+                        "name": "@modelcontextprotocol/inspector",
+                        "version": "2.12.0",
+                    }
+                },
+                "server": {"fixAvailable": True},
+                "inspector": {
+                    "fixAvailable": {
+                        "name": "@modelcontextprotocol/inspector",
+                        "version": "3.0.0",
+                    }
+                },
+                "other": {
+                    "fixAvailable": {
+                        "name": "leftpad",
+                        "version": "9.0.0",
+                    }
+                },
+            }
+        }
+        self.assertEqual(
+            direct_security_fix_version(
+                document, "@modelcontextprotocol/inspector", ">=2.4.0,<3"
+            ),
+            "2.12.0",
+        )
+        self.assertIsNone(
+            direct_security_fix_version(
+                {"vulnerabilities": {"inspector": {"fixAvailable": True}}},
+                "@modelcontextprotocol/inspector",
+                ">=2.4.0,<3",
+            )
+        )
+
     def test_fetch_versions_rejects_naive_cutoff(self) -> None:
         with self.assertRaisesRegex(ValueError, "timezone"):
             fetch_npm_versions("inspector", exclude_newer=datetime(2026, 10, 1))
@@ -502,6 +541,77 @@ class TestUpdateInspectorVersionScript(unittest.TestCase):
                 "inspector", ">=2.4.0,<3", exclude_newer=None
             )
             write_locked.assert_not_called()
+
+    def test_security_fix_raises_npm_cutoff_only_past_cooled_release(self) -> None:
+        import update_inspector_version
+
+        config = InspectorVersionConfig(
+            "@modelcontextprotocol/inspector", ">=2.4.0,<3", "2.9.0"
+        )
+        published = datetime(2026, 10, 21, 18, 35, 58, tzinfo=UTC)
+        cutoff = datetime(2026, 10, 16, tzinfo=UTC)
+        with (
+            patch(
+                "update_inspector_version.load_inspector_version_config",
+                return_value=config,
+            ),
+            patch(
+                "update_inspector_version.latest_version_in_constraint",
+                return_value="2.11.0",
+            ),
+            patch(
+                "update_inspector_version.npm_direct_security_fix",
+                return_value=("2.12.0", published),
+            ),
+            patch("update_inspector_version.write_locked_version") as write_locked,
+            patch("update_inspector_version.update_inspector_npm_lock") as update_lock,
+        ):
+            self.assertEqual(
+                update_inspector_version.main(
+                    ["--exclude-newer", "2026-10-16T00:00:00Z", "--npm-lock"]
+                ),
+                0,
+            )
+        write_locked.assert_called_once_with("2.12.0")
+        update_lock.assert_called_once_with(published + timedelta(seconds=1))
+        self.assertGreater(update_lock.call_args.args[0], cutoff)
+
+    def test_cooled_inspector_release_keeps_shared_cutoff(self) -> None:
+        import update_inspector_version
+
+        config = InspectorVersionConfig(
+            "@modelcontextprotocol/inspector", ">=2.4.0,<3", "2.9.0"
+        )
+        cutoff = datetime(2026, 10, 16, tzinfo=UTC)
+        with (
+            patch(
+                "update_inspector_version.load_inspector_version_config",
+                return_value=config,
+            ),
+            patch(
+                "update_inspector_version.latest_version_in_constraint",
+                return_value="2.12.0",
+            ),
+            patch(
+                "update_inspector_version.npm_direct_security_fix",
+                return_value=("2.11.0", datetime(2026, 10, 21, tzinfo=UTC)),
+            ) as security_fix,
+            patch("update_inspector_version.write_locked_version") as write_locked,
+            patch("update_inspector_version.update_inspector_npm_lock") as update_lock,
+        ):
+            self.assertEqual(
+                update_inspector_version.main(
+                    [
+                        "--exclude-newer",
+                        cutoff.isoformat().replace("+00:00", "Z"),
+                        "--npm-lock",
+                    ]
+                ),
+                0,
+            )
+        security_fix.assert_called_once()
+        write_locked.assert_called_once_with("2.12.0")
+        update_lock.assert_called_once_with(cutoff)
 
     def test_invalid_cutoff_arguments(self) -> None:
         import update_inspector_version

@@ -20,6 +20,7 @@ from e2e.inspector_version import (  # noqa: E402
     NoEligibleInspectorVersion,
     latest_version_in_constraint,
     load_inspector_version_config,
+    npm_direct_security_fix,
     parse_version,
     update_inspector_npm_lock,
     write_locked_version,
@@ -69,6 +70,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::warning title=npm lookup failed::{config.package}: {exc}")
         return 0
 
+    lock_cutoff = cutoff
+    if args.npm_lock and cutoff is not None:
+        security_fix = npm_direct_security_fix(config.package, config.constraint)
+        if security_fix is not None:
+            fixed_version, published = security_fix
+            if parse_version(fixed_version) > parse_version(latest_allowed):
+                latest_allowed = fixed_version
+                if published > cutoff:
+                    lock_cutoff = published + timedelta(seconds=1)
+                print(
+                    "Security cooldown exception: "
+                    f"{config.package} {fixed_version} "
+                    f"(published {published.isoformat()})."
+                )
+
     if parse_version(latest_allowed) <= parse_version(config.locked_version):
         print(f"No eligible Inspector upgrade; keeping {config.locked_version}.")
     else:
@@ -78,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.npm_lock:
         try:
-            update_inspector_npm_lock(cutoff)
+            update_inspector_npm_lock(lock_cutoff)
         except Exception:
             if latest_allowed != config.locked_version:
                 write_locked_version(config.locked_version)

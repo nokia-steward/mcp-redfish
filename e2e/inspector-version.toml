@@ -1,6 +1,8 @@
 # MCP Inspector CLI version policy for e2e tests and `make inspect`.
 # The exact version is pinned in inspector-version.lock.
 # Minor/patch updates and the full npm lock use the shared seven-day cutoff.
+# A direct vulnerability fix inside this range may be younger than that cutoff.
+# The npm graph may then include releases up to that fix's publication time.
 package = "@modelcontextprotocol/inspector"
 # Allow minor/patch updates within major version 2; major bumps require manual review.
 constraint = ">=2.4.0,<3"
