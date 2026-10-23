@@ -101,7 +101,7 @@ jobs:
           CUTOFF="$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
           echo "DEPENDENCY_EXCLUDE_NEWER=$CUTOFF" >> "$GITHUB_ENV"
           echo "policy=7 days; publication cutoff $CUTOFF" >> "$GITHUB_OUTPUT"
-          echo "**Dependency cooldown:** 7 days. Shared Python/Inspector publication cutoff: $CUTOFF." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Dependency cooldown:** 7 days. Shared Python/Inspector publication cutoff: $CUTOFF. Known vulnerability fixes may use the oldest fixing release before that cutoff." >> "$GITHUB_STEP_SUMMARY"
         fi
 
     - name: Update dependencies
@@ -190,7 +190,7 @@ jobs:
         body: |
           This PR contains automated dependency updates.
 
-          - Python dependencies are updated in `uv.lock` and Inspector plus its transitive npm graph in `e2e/package-lock.json`, using the seven-day cutoff
+          - Python dependencies are updated in `uv.lock` and Inspector plus its transitive npm graph in `e2e/package-lock.json`, using the seven-day cutoff. A known vulnerability may use the oldest fixing release even when that release is younger than the cutoff
           - Actions and container image updates are tracked by Renovate's Dependency Update Dashboard, with the same age policy
           - Dependency cooldown: ${{ steps.cooldown.outputs.policy }}
           - The Dependency updates available issue is refreshed with latest and eligible major versions, uv status, and Dex release status

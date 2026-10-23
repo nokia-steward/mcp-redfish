@@ -3,17 +3,28 @@
 # Licensed under the BSD 3-Clause License.
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Upgrade uv packages while honoring explicit exact-version holds."""
+"""Upgrade uv packages while honoring explicit exact-version holds.
+
+A locked package with a known vulnerability may move to the oldest release
+that fixes every reported advisory, even when that release is younger than
+the publication cutoff. Later releases of that package, and packages that
+are not part of the fix, stay on the cutoff.
+"""
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
@@ -148,10 +159,16 @@ def validate_preserved(snapshot: Snapshot, preserved: Preserved) -> None:
             )
 
 
-def fresh_packages(before: Snapshot, after: Snapshot, cutoff: datetime) -> set[str]:
-    """Return packages that gained a fresh or undated artifact."""
+def fresh_packages(
+    before: Snapshot,
+    after: Snapshot,
+    cutoff: datetime,
+    limits: Mapping[str, datetime],
+) -> set[str]:
+    """Return packages that gained an artifact newer than their limit, or undated."""
     fresh: set[str] = set()
     for name, entries in sorted(after.items()):
+        limit = limits.get(name, cutoff)
         old_entries = before.get(name, ())
         for entry in entries:
             previous = next(
@@ -169,7 +186,7 @@ def fresh_packages(before: Snapshot, after: Snapshot, cutoff: datetime) -> set[s
             )
             undated_new_release = previous is None and not entry.artifacts
             fresh_or_undated_artifact = any(
-                artifact.uploaded is None or artifact.uploaded > cutoff
+                artifact.uploaded is None or artifact.uploaded > limit
                 for artifact in added
             )
             if undated_new_release or fresh_or_undated_artifact:
@@ -235,20 +252,179 @@ def _resolve(
     return completed
 
 
-def update_dependencies(
-    lockfile: Path, pyproject: Path, cutoff: datetime | None
-) -> None:
-    """Update all unheld packages in one resolution."""
-    before_bytes = lockfile.read_bytes()
-    revision = _revision(before_bytes.decode("utf-8"))
-    before = load_snapshot(lockfile)
-    preserved = load_preserved(pyproject)
-    validate_preserved(before, preserved)
-    upgrade_packages = set(before) - preserved.keys()
-    limits = (
-        dict.fromkeys(sorted(upgrade_packages), cutoff) if cutoff is not None else {}
-    )
+@dataclass(frozen=True)
+class _Advisory:
+    identifier: str
+    locked: Version
+    fixes: tuple[Version, ...]
 
+
+def _audit_document(lockfile: Path) -> dict[str, object]:
+    """Return uv audit JSON, including when vulnerabilities make it exit non-zero."""
+    completed = subprocess.run(
+        [
+            "uv",
+            "audit",
+            "--frozen",
+            "--preview-features",
+            "audit-command",
+            "--preview-features",
+            "json-output",
+            "--output-format",
+            "json",
+        ],
+        cwd=lockfile.parent,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        document = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            "uv audit did not return JSON, so security cooldown exceptions "
+            "were not evaluated"
+        ) from error
+    if not isinstance(document, dict):
+        raise RuntimeError("uv audit JSON was not an object")
+    return document
+
+
+def _fixes_by_package(document: Mapping[str, object]) -> dict[str, list[_Advisory]]:
+    vulnerabilities = document.get("vulnerabilities", [])
+    if not isinstance(vulnerabilities, list):
+        raise ValueError("uv audit JSON is missing vulnerabilities")
+    grouped: dict[str, list[_Advisory]] = {}
+    for entry in vulnerabilities:
+        if not isinstance(entry, dict):
+            raise ValueError("uv audit vulnerability entry is not an object")
+        dependency = entry.get("dependency")
+        raw_fixes = entry.get("fix_versions", [])
+        if not isinstance(dependency, dict) or not isinstance(raw_fixes, list):
+            raise ValueError("uv audit vulnerability is missing fix metadata")
+        name = canonicalize_name(str(dependency.get("name", "")))
+        try:
+            locked = Version(str(dependency["version"]))
+            fixes = tuple(Version(str(item)) for item in raw_fixes)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"uv audit returned an unusable version for {name}"
+            ) from error
+        grouped.setdefault(name, []).append(
+            _Advisory(str(entry.get("id", "unknown")), locked, fixes)
+        )
+    return grouped
+
+
+def _minimum_complete_fix(
+    advisories: list[_Advisory],
+) -> tuple[Version, Version, tuple[str, ...]] | None:
+    """Return the locked version, the oldest complete fix, and advisory ids."""
+    if any(not advisory.fixes for advisory in advisories):
+        return None
+    locked = max(advisory.locked for advisory in advisories)
+    candidates = sorted(
+        {fix for advisory in advisories for fix in advisory.fixes if fix > locked}
+    )
+    for candidate in candidates:
+        if all(
+            any(fix <= candidate for fix in advisory.fixes) for advisory in advisories
+        ):
+            identifiers = tuple(
+                sorted({advisory.identifier for advisory in advisories})
+            )
+            return locked, candidate, identifiers
+    return None
+
+
+def pypi_upload_time(name: str, version: Version) -> datetime:
+    """Return the newest artifact upload time for one PyPI release."""
+    quoted = urllib.parse.quote(name)
+    request = urllib.request.Request(
+        f"https://pypi.org/pypi/{quoted}/{version}/json",
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{name}=={version} PyPI metadata was not an object")
+    urls = payload.get("urls", [])
+    if not isinstance(urls, list):
+        raise ValueError(f"{name}=={version} PyPI metadata has no files")
+    uploaded: list[datetime] = []
+    for distribution in urls:
+        if not isinstance(distribution, dict) or distribution.get("yanked"):
+            continue
+        timestamp = _timestamp(distribution.get("upload_time_iso_8601"))
+        if timestamp is not None:
+            uploaded.append(timestamp)
+    if not uploaded:
+        raise ValueError(f"{name}=={version} has no PyPI upload time")
+    return max(uploaded)
+
+
+def security_fix_cutoffs(
+    lockfile: Path,
+    cutoff: datetime,
+    preserved: Preserved,
+    *,
+    audit_document: Mapping[str, object] | None = None,
+    upload_time: Callable[[str, Version], datetime] | None = None,
+) -> dict[str, datetime]:
+    """Raise cutoffs to one second after the oldest complete vulnerability fix."""
+    if audit_document is None:
+        audit_document = _audit_document(lockfile)
+    if upload_time is None:
+        upload_time = pypi_upload_time
+    raised: dict[str, datetime] = {}
+    for name, advisories in sorted(_fixes_by_package(audit_document).items()):
+        selected = _minimum_complete_fix(advisories)
+        if selected is None:
+            continue
+        locked, fix, identifiers = selected
+        if name in preserved:
+            print(
+                f"Preserved package {name} has a known vulnerability; "
+                "the hold blocks the security update."
+            )
+            continue
+        try:
+            uploaded = upload_time(name, fix)
+        except (
+            OSError,
+            urllib.error.URLError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            raise RuntimeError(
+                f"could not read the publication time for {name}=={fix}"
+            ) from error
+        if uploaded.utcoffset() is None:
+            raise RuntimeError(f"{name}=={fix} has no timezone-aware publication time")
+        limit = uploaded + timedelta(seconds=1)
+        if limit <= cutoff:
+            continue
+        raised[name] = limit
+        print(
+            "Security cooldown exception: "
+            f"{name} {locked} -> {fix} "
+            f"(published {_format_cutoff(uploaded)}; "
+            f"fixes {', '.join(identifiers)})."
+        )
+    return raised
+
+
+def _resolve_until_stable(
+    lockfile: Path,
+    before: Snapshot,
+    before_bytes: bytes,
+    preserved: Preserved,
+    upgrade_packages: set[str],
+    limits: dict[str, datetime],
+    revision: int,
+    cutoff: datetime | None,
+) -> bool:
+    """Apply one cutoff map. Return false when the attempt is discarded."""
     while True:
         completed = _resolve(lockfile, upgrade_packages, limits, revision)
         if completed.returncode != 0:
@@ -257,7 +433,7 @@ def update_dependencies(
                 print(
                     "Kept existing lock: no eligible resolution satisfies the policy."
                 )
-                return
+                return False
             completed.check_returncode()
 
         try:
@@ -273,13 +449,14 @@ def update_dependencies(
             _restore(lockfile, before_bytes)
             names = ", ".join(sorted(changed_holds))
             print(
-                f"Kept existing lock: resolution would change preserved package(s): {names}."
+                "Kept existing lock: resolution would change preserved "
+                f"package(s): {names}."
             )
-            return
+            return False
 
         if cutoff is None:
             break
-        fresh = fresh_packages(before, after, cutoff)
+        fresh = fresh_packages(before, after, cutoff, limits)
         if not fresh:
             break
         new_limits = fresh - limits.keys()
@@ -290,7 +467,7 @@ def update_dependencies(
                 "Kept existing lock: resolver retained fresh or undated "
                 f"artifact(s) for limited package(s): {names}."
             )
-            return
+            return False
         limits.update(dict.fromkeys(sorted(new_limits), cutoff))
         _restore(lockfile, before_bytes)
 
@@ -302,6 +479,68 @@ def update_dependencies(
             + (", ".join(sorted(preserved)) if preserved else "none")
             + "."
         )
+    return True
+
+
+def update_dependencies(
+    lockfile: Path,
+    pyproject: Path,
+    cutoff: datetime | None,
+    raised_cutoffs: Mapping[str, datetime] | None = None,
+) -> None:
+    """Update all unheld packages in one resolution."""
+    before_bytes = lockfile.read_bytes()
+    revision = _revision(before_bytes.decode("utf-8"))
+    before = load_snapshot(lockfile)
+    preserved = load_preserved(pyproject)
+    validate_preserved(before, preserved)
+    upgrade_packages = set(before) - preserved.keys()
+    if cutoff is None:
+        _resolve_until_stable(
+            lockfile,
+            before,
+            before_bytes,
+            preserved,
+            upgrade_packages,
+            {},
+            revision,
+            None,
+        )
+        return
+
+    if raised_cutoffs is None:
+        raised_cutoffs = security_fix_cutoffs(lockfile, cutoff, preserved)
+    limits = dict.fromkeys(sorted(upgrade_packages), cutoff)
+    for name, moment in raised_cutoffs.items():
+        if name in limits and moment > cutoff:
+            limits[name] = moment
+    applied = _resolve_until_stable(
+        lockfile,
+        before,
+        before_bytes,
+        preserved,
+        upgrade_packages,
+        limits,
+        revision,
+        cutoff,
+    )
+    if applied or not any(moment > cutoff for moment in limits.values()):
+        return
+    print(
+        "Could not apply the security cooldown exception with the rest of "
+        "the update policy; retrying with the publication cutoff only."
+    )
+    _restore(lockfile, before_bytes)
+    _resolve_until_stable(
+        lockfile,
+        before,
+        before_bytes,
+        preserved,
+        upgrade_packages,
+        dict.fromkeys(sorted(upgrade_packages), cutoff),
+        revision,
+        cutoff,
+    )
 
 
 def _cutoff(value: str) -> datetime:

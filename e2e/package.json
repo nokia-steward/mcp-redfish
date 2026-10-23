@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@modelcontextprotocol/inspector": "2.9.0"
+    "@modelcontextprotocol/inspector": "2.12.0"
   }
 }

@@ -63,7 +63,8 @@ make e2e-test     # Full e2e testing with Redfish emulator
 
 Dependency policy is canonical in
 [Automated Dependency Updates](../README.md#automated-dependency-updates).
-Preserve the shared seven-day cutoff, `npm ci --ignore-scripts`, and the warned
+Preserve the shared seven-day cutoff, the oldest-fix exception for known
+vulnerabilities, `npm ci --ignore-scripts`, and the warned
 `bypass_cooldown` override. `.uv-version` is the only uv installer pin; the
 release indicator never edits it. Renovate covers only Actions and container
 references. `.github/dependabot.yml` allows uv security updates only. Do not

@@ -656,28 +656,38 @@ make pre-commit-run # Run all pre-commit checks
 The [dependency update workflow](.github/workflows/dependency-updates.yml) runs
 on **Monday, Wednesday, and Friday at 09:00 UTC**, every two or three days. It
 selects the newest compatible Python packages and MCP Inspector releases that
-meet a **seven-day publication cooldown**, then runs unit and e2e tests before
-opening a pull request. More frequent checks do not shorten the cooldown.
-A release becomes eligible after seven days. The next scheduled run normally
-selects it 7 to 10 days after publication, provided it meets the version
-constraints. PR review and merging can take additional time.
+meet a **seven-day publication cooldown**. A known vulnerability may instead
+use the oldest release that fixes it. The run then executes unit and e2e tests
+before opening a pull request. More frequent checks do not shorten the cooldown.
+A release becomes eligible after seven days, unless it is that vulnerability
+fix. The next scheduled run normally selects an ordinary release 7 to 10 days
+after publication, provided it meets the version constraints. PR review and
+merging can take additional time.
 
 Each run computes one UTC cutoff and passes it to the Python and Inspector
 updaters through `--exclude-newer`. The Python updater considers registry
 packages as one update set and applies the cutoff to direct and transitive
-candidates. A manually accepted cooldown exception can be held at its exact
-version in `tool.dependency-updates.preserve` in `pyproject.toml`, for example
-`preserve = ["fastmcp==4.1.0"]`. Held packages are excluded from updates and
-the run is discarded without failure if resolving other packages would change
-one. Remove the hold after the release clears the cooldown. Inspector uses npm
-publication timestamps; missing, invalid, or timezone-free timestamps are
-excluded. If no eligible Inspector upgrade exists, its current pin is retained,
-without a downgrade. The npm graph is recorded in `e2e/package-lock.json` and
-rebuilt using `npm update --before` with the same cutoff, including transitive
-packages.
+candidates. A locked package with a known vulnerability may still move to the
+oldest release that fixes every reported advisory, even when that release is
+younger than the cutoff. Later releases of the same package stay on the cutoff.
+Other packages stay on the cutoff too. If that resolution cannot be satisfied,
+the run retries without the exception and records the reason. A manually
+accepted cooldown exception can be held at its exact version in
+`tool.dependency-updates.preserve` in `pyproject.toml`, for example
+`preserve = ["fastmcp==4.1.0"]`. Held packages are excluded from updates,
+including vulnerability fixes, and the run is discarded without failure if
+resolving other packages would change one. Remove the hold after the release
+clears the cooldown. Inspector uses npm publication timestamps; missing,
+invalid, or timezone-free timestamps are excluded. If npm audit reports a
+direct Inspector fix inside the configured major range, that version may be
+selected before it is seven days old. The npm graph is then rebuilt with
+`--before` set to one second after that fix's publication time, so packages
+required by the fix can update, but nothing in the graph may be newer than the
+fix. If no eligible Inspector upgrade exists, its current pin is retained,
+without a downgrade. The npm graph is recorded in `e2e/package-lock.json`.
 Install scripts are disabled. Tests and `make inspect` use `npm ci` and the local
 Inspector executable, never an on-demand `npx` resolution. The initial graph
-uses the explicitly reviewed eligible Inspector 2.9.0 baseline. If npm cannot
+uses the explicitly reviewed eligible Inspector 2.12.0 baseline. If npm cannot
 satisfy an exact pin and the cutoff, the run fails rather than bypassing the age
 rule or silently downgrading.
 
@@ -768,7 +778,10 @@ or `--exclude-newer TIMESTAMP` for an explicit timezone-aware ISO 8601 cutoff.
 These options cannot be combined. The workflow uses the latter to share its
 cutoff with uv.
 
-For a reviewed urgent security fix, manually dispatch the workflow with
+Routine runs already allow the oldest release that fixes a known vulnerability.
+For a reviewed case the automatic exception cannot apply, such as a major
+Inspector bump, a preserved hold, or a fix that needs other packages newer
+than that fixing release, manually dispatch the workflow with
 `bypass_cooldown=true`. This bypasses the cutoff for **all updates in that run**,
 not just the affected package; review the entire resulting diff. The workflow
 summary and PR body explicitly record the bypass, and tests still run. A local
@@ -798,9 +811,10 @@ The Security Scan check is the known-vulnerability gate. `uv audit --frozen`
 scans every extra and dependency group recorded in `uv.lock`, and `npm audit
 --package-lock-only` scans `e2e/package-lock.json`. Bandit scans first-party
 Python and fails the same check. A vulnerable locked version fails CI until the
-lock changes, using a reviewed `bypass_cooldown` run when the fix is newer than
-the cutoff. Local runs require npm on `PATH` and network access to the advisory
-services.
+lock changes. Routine dependency updates apply the oldest fixing release even
+when it is still inside the seven-day cooldown. `bypass_cooldown` remains the
+way to take every newer release, not only vulnerability fixes. Local runs
+require npm on `PATH` and network access to the advisory services.
 
 ### Code Organization
 ```

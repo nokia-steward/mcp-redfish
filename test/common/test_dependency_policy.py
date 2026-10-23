@@ -64,6 +64,15 @@ class TestDependencyPolicyFiles(unittest.TestCase):
         update_job = workflow.split("update-dependencies:", 1)[1]
         self.assertIn("scripts/update_python_dependencies.py", update_job)
         self.assertIn("DEPENDENCY_EXCLUDE_NEWER", update_job)
+        python_updater = (ROOT / "scripts/update_python_dependencies.py").read_text(
+            encoding="utf-8"
+        )
+        inspector_updater = (ROOT / "scripts/update_inspector_version.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Security cooldown exception:", python_updater)
+        self.assertIn("Security cooldown exception:", inspector_updater)
+        self.assertIn("uv audit", python_updater)
         self.assertNotIn("UV_EXCLUDE_NEWER", update_job)
         self.assertNotIn("uv lock --upgrade\n", update_job)
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

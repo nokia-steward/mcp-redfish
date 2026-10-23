@@ -308,7 +308,7 @@ The canonical policy is
 [Automated Dependency Updates](README.md#automated-dependency-updates).
 Keep these boundaries intact:
 
-- The custom workflow owns `uv.lock` and the Inspector npm graph. One UTC cutoff applies to candidate direct and transitive artifacts; unknown timestamps are excluded. Exact, temporary Python holds live in `tool.dependency-updates.preserve` in `pyproject.toml`; the Inspector pin is never downgraded.
+- The custom workflow owns `uv.lock` and the Inspector npm graph. One UTC cutoff applies to candidate direct and transitive artifacts; unknown timestamps are excluded. A known vulnerability fix may use the oldest release that clears every reported advisory even when that release is younger than the cutoff. Exact, temporary Python holds live in `tool.dependency-updates.preserve` in `pyproject.toml` and also block those fixes; the Inspector pin is never downgraded.
 - Inspector execution uses `npm ci --ignore-scripts` and the local executable, not `npx`.
 - `bypass_cooldown=true` bypasses that cutoff for every update in the run, records a warning, and still runs tests. `dry_run=true` tests without writing the issue or pull request.
 - `.uv-version` is the only uv installer pin. The indicator recommends the highest newer release that has cleared seven days and never edits the pin.

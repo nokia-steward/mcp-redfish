@@ -89,6 +89,76 @@ def write_locked_version(version: str) -> None:
     LOCK_PATH.write_text(f"{version}\n", encoding="utf-8")
 
 
+def direct_security_fix_version(
+    document: dict, package: str, constraint: str
+) -> str | None:
+    """Return the newest in-range direct fix reported by one npm audit document."""
+    vulnerabilities = document.get("vulnerabilities", {})
+    if not isinstance(vulnerabilities, dict):
+        raise ValueError("npm audit JSON is missing vulnerabilities")
+    versions: list[str] = []
+    for entry in vulnerabilities.values():
+        if not isinstance(entry, dict):
+            continue
+        available = entry.get("fixAvailable")
+        if not isinstance(available, dict) or available.get("name") != package:
+            continue
+        version = available.get("version")
+        if not isinstance(version, str) or not VERSION_RE.match(version):
+            continue
+        if not version_satisfies_constraint(version, constraint):
+            continue
+        versions.append(version)
+    if not versions:
+        return None
+    return sorted(versions, key=parse_version)[-1]
+
+
+def npm_audit_document(prefix: Path) -> dict:
+    """Return npm audit JSON, including when vulnerabilities make it exit non-zero."""
+    completed = subprocess.run(
+        ["npm", "audit", "--json", "--package-lock-only", "--prefix", str(prefix)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        document = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            "npm audit did not return JSON, so security cooldown exceptions "
+            "were not evaluated"
+        ) from error
+    if not isinstance(document, dict):
+        raise RuntimeError("npm audit JSON was not an object")
+    return document
+
+
+def npm_direct_security_fix(
+    package: str, constraint: str
+) -> tuple[str, datetime] | None:
+    """Return an in-range direct vulnerability fix and its publication time."""
+    version = direct_security_fix_version(
+        npm_audit_document(CONFIG_PATH.parent), package, constraint
+    )
+    if version is None:
+        return None
+    timestamp = fetch_npm_metadata(package).get("time", {}).get(version)
+    if not isinstance(timestamp, str):
+        raise RuntimeError(f"{package}@{version} has no npm publication time")
+    try:
+        published = datetime.fromisoformat(timestamp)
+    except ValueError as error:
+        raise RuntimeError(
+            f"{package}@{version} has an invalid npm publication time"
+        ) from error
+    if published.utcoffset() is None:
+        raise RuntimeError(
+            f"{package}@{version} has no timezone-aware publication time"
+        )
+    return version, published
+
+
 def update_inspector_npm_lock(exclude_newer: datetime | None) -> None:
     config = load_inspector_version_config()
     manifest_path = CONFIG_PATH.parent / "package.json"
