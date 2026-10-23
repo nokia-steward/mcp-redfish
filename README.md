@@ -687,7 +687,7 @@ fix. If no eligible Inspector upgrade exists, its current pin is retained,
 without a downgrade. The npm graph is recorded in `e2e/package-lock.json`.
 Install scripts are disabled. Tests and `make inspect` use `npm ci` and the local
 Inspector executable, never an on-demand `npx` resolution. The initial graph
-uses the explicitly reviewed eligible Inspector 2.9.0 baseline. If npm cannot
+uses the explicitly reviewed eligible Inspector 2.12.0 baseline. If npm cannot
 satisfy an exact pin and the cutoff, the run fails rather than bypassing the age
 rule or silently downgrading.
 
