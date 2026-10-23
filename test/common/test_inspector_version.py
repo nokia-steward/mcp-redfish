@@ -564,6 +564,10 @@ class TestUpdateInspectorVersionScript(unittest.TestCase):
                 return_value=("2.12.0", published),
             ),
             patch("update_inspector_version.write_locked_version") as write_locked,
+            patch(
+                "update_inspector_version.lock_cutoff_for_pinned_version",
+                side_effect=lambda _package, _version, cutoff: cutoff,
+            ),
             patch("update_inspector_version.update_inspector_npm_lock") as update_lock,
         ):
             self.assertEqual(
@@ -575,6 +579,50 @@ class TestUpdateInspectorVersionScript(unittest.TestCase):
         write_locked.assert_called_once_with("2.12.0")
         update_lock.assert_called_once_with(published + timedelta(seconds=1))
         self.assertGreater(update_lock.call_args.args[0], cutoff)
+
+    def test_kept_pin_newer_than_cutoff_extends_npm_lock_cutoff(self) -> None:
+        import update_inspector_version
+
+        config = InspectorVersionConfig(
+            "@modelcontextprotocol/inspector", ">=2.4.0,<3", "2.12.0"
+        )
+        published = datetime(2026, 10, 21, 18, 35, 58, tzinfo=UTC)
+        cutoff = datetime(2026, 10, 16, tzinfo=UTC)
+        with (
+            patch(
+                "update_inspector_version.load_inspector_version_config",
+                return_value=config,
+            ),
+            patch(
+                "update_inspector_version.latest_version_in_constraint",
+                side_effect=NoEligibleInspectorVersion,
+            ),
+            patch(
+                "update_inspector_version.npm_direct_security_fix",
+                return_value=None,
+            ),
+            patch("update_inspector_version.write_locked_version") as write_locked,
+            patch(
+                "update_inspector_version.lock_cutoff_for_pinned_version",
+                return_value=published + timedelta(seconds=1),
+            ) as widen_cutoff,
+            patch("update_inspector_version.update_inspector_npm_lock") as update_lock,
+        ):
+            self.assertEqual(
+                update_inspector_version.main(
+                    [
+                        "--exclude-newer",
+                        cutoff.isoformat().replace("+00:00", "Z"),
+                        "--npm-lock",
+                    ]
+                ),
+                0,
+            )
+        write_locked.assert_not_called()
+        widen_cutoff.assert_called_once_with(
+            config.package, config.locked_version, cutoff
+        )
+        update_lock.assert_called_once_with(published + timedelta(seconds=1))
 
     def test_cooled_inspector_release_keeps_shared_cutoff(self) -> None:
         import update_inspector_version
@@ -597,6 +645,10 @@ class TestUpdateInspectorVersionScript(unittest.TestCase):
                 return_value=("2.11.0", datetime(2026, 10, 21, tzinfo=UTC)),
             ) as security_fix,
             patch("update_inspector_version.write_locked_version") as write_locked,
+            patch(
+                "update_inspector_version.lock_cutoff_for_pinned_version",
+                return_value=cutoff,
+            ),
             patch("update_inspector_version.update_inspector_npm_lock") as update_lock,
         ):
             self.assertEqual(
