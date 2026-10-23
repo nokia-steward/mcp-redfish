@@ -20,6 +20,7 @@ from e2e.inspector_version import (  # noqa: E402
     NoEligibleInspectorVersion,
     latest_version_in_constraint,
     load_inspector_version_config,
+    lock_cutoff_for_pinned_version,
     npm_direct_security_fix,
     parse_version,
     update_inspector_npm_lock,
@@ -93,8 +94,14 @@ def main(argv: list[str] | None = None) -> int:
             f"Updated {config.package} lock: {config.locked_version} -> {latest_allowed}"
         )
     if args.npm_lock:
+        pinned_config = load_inspector_version_config()
+        effective_lock_cutoff = lock_cutoff_for_pinned_version(
+            pinned_config.package,
+            pinned_config.locked_version,
+            lock_cutoff,
+        )
         try:
-            update_inspector_npm_lock(lock_cutoff)
+            update_inspector_npm_lock(effective_lock_cutoff)
         except Exception:
             if latest_allowed != config.locked_version:
                 write_locked_version(config.locked_version)

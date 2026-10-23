@@ -13,7 +13,7 @@ import tomllib
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).parent / "inspector-version.toml"
@@ -134,15 +134,7 @@ def npm_audit_document(prefix: Path) -> dict:
     return document
 
 
-def npm_direct_security_fix(
-    package: str, constraint: str
-) -> tuple[str, datetime] | None:
-    """Return an in-range direct vulnerability fix and its publication time."""
-    version = direct_security_fix_version(
-        npm_audit_document(CONFIG_PATH.parent), package, constraint
-    )
-    if version is None:
-        return None
+def npm_version_publication_time(package: str, version: str) -> datetime:
     timestamp = fetch_npm_metadata(package).get("time", {}).get(version)
     if not isinstance(timestamp, str):
         raise RuntimeError(f"{package}@{version} has no npm publication time")
@@ -156,6 +148,31 @@ def npm_direct_security_fix(
         raise RuntimeError(
             f"{package}@{version} has no timezone-aware publication time"
         )
+    return published
+
+
+def lock_cutoff_for_pinned_version(
+    package: str, locked_version: str, cutoff: datetime | None
+) -> datetime | None:
+    """Widen npm --before so an already-pinned direct version can be resolved."""
+    if cutoff is None:
+        return None
+    published = npm_version_publication_time(package, locked_version)
+    if published > cutoff:
+        return published + timedelta(seconds=1)
+    return cutoff
+
+
+def npm_direct_security_fix(
+    package: str, constraint: str
+) -> tuple[str, datetime] | None:
+    """Return an in-range direct vulnerability fix and its publication time."""
+    version = direct_security_fix_version(
+        npm_audit_document(CONFIG_PATH.parent), package, constraint
+    )
+    if version is None:
+        return None
+    published = npm_version_publication_time(package, version)
     return version, published
 
 
