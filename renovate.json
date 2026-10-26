@@ -26,8 +26,10 @@
       "enabled": false
     },
     {
+      "description": "Official python image tags use PEP 440; default docker versioning misses patch bumps on -slim",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["python"],
+      "versioning": "pep440",
       "allowedVersions": "<3.15"
     },
     {

@@ -531,6 +531,25 @@ def update_dependencies(
         "the update policy; retrying with the publication cutoff only."
     )
     _restore(lockfile, before_bytes)
+    targeted = sorted(raised_cutoffs)
+    if targeted:
+        print(
+            "Retrying security fixes for affected package(s) only: "
+            + ", ".join(targeted)
+            + "."
+        )
+        if _resolve_until_stable(
+            lockfile,
+            before,
+            before_bytes,
+            preserved,
+            set(targeted),
+            dict(raised_cutoffs),
+            revision,
+            None,
+        ):
+            return
+        _restore(lockfile, before_bytes)
     _resolve_until_stable(
         lockfile,
         before,
