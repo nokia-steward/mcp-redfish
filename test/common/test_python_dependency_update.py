@@ -338,9 +338,62 @@ class TestPythonDependencyUpdate(unittest.TestCase):
                     raised_cutoffs={"certifi": raised},
                 )
 
-            self.assertEqual(calls, [raised, self.cutoff])
+            self.assertEqual(calls, [raised, raised, self.cutoff])
             self.assertIn(
                 'name = "certifi"\nversion = "2026.8.1"',
+                lockfile.read_text(encoding="utf-8"),
+            )
+
+    def test_security_fix_targets_vulnerable_packages_when_full_resolve_fails(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            lockfile = Path(directory) / "uv.lock"
+            pyproject = self._pyproject(directory, [])
+            lockfile.write_text(
+                _lock(
+                    [
+                        ("certifi", "2026.7.22", "2026-07-22T00:00:00Z", None),
+                        ("example", "1.0.0", "2026-09-01T00:00:00Z", None),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            raised = datetime(2026, 10, 20, 2, 24, 16, tzinfo=UTC)
+            upgrade_sets: list[set[str]] = []
+
+            def resolve(
+                _lockfile, upgrade_packages, limits, _revision
+            ) -> subprocess.CompletedProcess[str]:
+                upgrade_sets.append(set(upgrade_packages))
+                if len(upgrade_packages) > 1:
+                    return subprocess.CompletedProcess([], 1, "", "No solution found")
+                if limits["certifi"] != raised:
+                    raise AssertionError(f"unexpected limits {limits}")
+                lockfile.write_text(
+                    _lock(
+                        [
+                            ("certifi", "2026.10.19", "2026-10-20T02:24:15Z", None),
+                            ("example", "1.0.0", "2026-09-01T00:00:00Z", None),
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess([], 0, "", "")
+
+            with patch("update_python_dependencies._resolve", side_effect=resolve):
+                update_python_dependencies.update_dependencies(
+                    lockfile,
+                    pyproject,
+                    self.cutoff,
+                    raised_cutoffs={"certifi": raised},
+                )
+
+            self.assertEqual(upgrade_sets[0], {"certifi", "example"})
+            self.assertEqual(upgrade_sets[1], {"certifi"})
+            self.assertEqual(len(upgrade_sets), 2)
+            self.assertIn(
+                'name = "certifi"\nversion = "2026.10.19"',
                 lockfile.read_text(encoding="utf-8"),
             )
 
