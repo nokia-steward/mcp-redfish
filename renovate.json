@@ -13,6 +13,7 @@
   "dependencyDashboardFooter": "Dex uses GHCR, which does not expose a release timestamp Renovate can verify. See the Dependency updates available issue for upstream Dex releases; image digest age still requires manual review.",
   "ignoreUnstable": true,
   "automerge": false,
+  "rebaseWhen": "behind-base-branch",
   "pinDigests": true,
   "packageRules": [
     {
@@ -24,6 +25,12 @@
     {
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "pinDigest freezes the full semver tag already in use. Those updates have no release timestamp, so timestamp-required leaves renovate/stability-days pending. Semver bumps keep the seven-day age.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["pinDigest"],
+      "minimumReleaseAge": null
     },
     {
       "description": "Official python image tags use PEP 440; default docker versioning misses patch bumps on -slim",
