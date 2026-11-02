@@ -709,6 +709,9 @@ eligible release instead of waiting indefinitely. Floating major tags are
 disabled in `renovate.json` so new references cannot drift on moving labels.
 `pinDigests` still adds commit SHAs for supply-chain pinning; ongoing updates are
 semver bumps under the cooldown policy, not digest churn on a moving `v4` line.
+Pinning the commit an already-selected full semver tag resolves to is exempt
+from the seven-day check. Those `pinDigest` updates carry no release timestamp,
+so the check would otherwise stay pending.
 Major
 updates are disabled, and Python image updates stay below 3.15. It does not
 update Python libraries, the Inspector graph, or the manually maintained uv pin,
