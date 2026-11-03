@@ -713,7 +713,8 @@ Pinning the commit an already-selected full semver tag resolves to is exempt
 from the seven-day check. Those `pinDigest` updates carry no release timestamp,
 so the check would otherwise stay pending.
 Major
-updates are disabled, and Python image updates stay below 3.15. It does not
+updates are disabled, and Python image updates stay on the `3.14.x-slim` line,
+below 3.15. It does not
 update Python libraries, the Inspector graph, or the manually maintained uv pin,
 so it does not duplicate the existing dependency-update workflow.
 

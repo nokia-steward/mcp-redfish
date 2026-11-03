@@ -33,11 +33,10 @@
       "minimumReleaseAge": null
     },
     {
-      "description": "Official python image tags use PEP 440; default docker versioning misses patch bumps on -slim",
+      "description": "Stay on python 3.14.x-slim, below 3.15. PEP 440 rejects the -slim suffix, and an npm range such as <3.15 treats -slim as a prerelease, so neither can see patch bumps. Docker versioning compares the numeric prefix and keeps the suffix.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["python"],
-      "versioning": "pep440",
-      "allowedVersions": "<3.15"
+      "allowedVersions": "/^3\\.14\\.\\d+-slim$/"
     },
     {
       "matchManagers": ["github-actions"],
