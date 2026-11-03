@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [0.5.6] - 2026-11-03
+
+### Fixed
+
+- Security cooldown exceptions upgrade only the packages named by the audit when a full lock resolve under the raised cutoff has no solution.
+- Renovate proposes `python:3.14.x-slim` patch updates. Docker versioning matches the numeric prefix and keeps the `-slim` suffix.
+- Renovate rebases open update branches onto the base branch. Digest pins of an already-selected full semver tag skip the seven-day age check.
+
+### Changed
+
+- Dependencies are updated within their existing ranges. Direct updates include FastMCP 4.1.4, httpx2 2.16.0, and redfish 3.4.2. Developer tools include Ruff 0.17.2. Transitive updates include authlib 1.9.1, cyclopts 5.3.1, filelock 4.2.4, and starlette 1.10.0. MCP Inspector stays at 2.12.0; its npm graph updates es-toolkit to 1.53.0 and hono to 4.13.14.
+- Release and test images use `python:3.14.9-slim`. E2E Dex defaults to v2.46.1.
+- GitHub Actions references are pinned to commit SHAs. Version bumps include docker/setup-buildx-action 4.4.1, docker/login-action 4.7.0, and CodeQL 3.39.1.
+
 ## [0.5.5] - 2026-10-23
 
 ### Fixed
