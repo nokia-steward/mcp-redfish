@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [0.5.7] - 2026-11-24
+
+### Changed
+
+- Dependencies are updated within their existing ranges. Direct updates include FastMCP 4.2.0 and httpx2 2.16.2. Developer tools include Ruff 0.17.5 and mypy 2.4.1. Transitive updates include authlib 1.9.8, cyclopts 5.5.2, filelock 4.2.10, and cachetools 8.0.0. MCP Inspector moves to 2.15.0; its npm graph updates es-toolkit to 1.53.2 and hono to 4.13.19.
+- Release and test images use `python:3.14.10-slim`.
+- GitHub Actions references are pinned to commit SHAs. Version bumps include docker/login-action 4.8.0 and CodeQL 3.39.3.
+
 ## [0.5.6] - 2026-11-03
 
 ### Fixed
